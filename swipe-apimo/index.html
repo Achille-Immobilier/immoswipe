@@ -349,13 +349,18 @@ const DEF={accordText:"J'accepte d'être recontacté(e) par Achille Immobilier, 
 const tx=k=>deck[k]||DEF[k];
 const SESSION=(()=>{try{return crypto.randomUUID();}catch(e){return 's'+Date.now().toString(36)+Math.random().toString(36).slice(2,10);}})();
 let accord=false, envoi='';   /* envoi : '' pas encore · 'ok' fiche reçue par l'agence · 'echec' à envoyer à la main */
+const MOBILE=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent));
+const waLien=t=>MOBILE?'whatsapp://send?phone='+deck.whatsapp+'&text='+encodeURIComponent(t):'https://wa.me/'+deck.whatsapp+'?text='+encodeURIComponent(t);
 const nomComplet=()=>((fin.prenom||'')+' '+(fin.nom||'')).trim();
 /* Ouvre WhatsApp ou la messagerie du client avec sa recherche déjà rédigée (en plus de la fiche envoyée à l'agence). */
 function ouvrirCanal(){
   if(!fin.contact)return;const m=message();
   try{
-    if(fin.contact==='WhatsApp')window.open('https://wa.me/'+deck.whatsapp+'?text='+encodeURIComponent(m),'_blank','noopener');
-    else{const a=document.createElement('a');a.href='mailto:'+deck.email+'?subject='+encodeURIComponent('Ma recherche ImmoSwipe'+(nomComplet()?' – '+nomComplet():''))+'&body='+encodeURIComponent(m);a.style.display='none';document.body.appendChild(a);a.click();a.remove();}
+    if(fin.contact==='WhatsApp'){
+      /* mobile : on ouvre l'application directement (pas de nouvel onglet vide) ; ordinateur : WhatsApp Web dans un nouvel onglet */
+      if(MOBILE){const a=document.createElement('a');a.href=waLien(m);a.style.display='none';document.body.appendChild(a);a.click();a.remove();}
+      else window.open(waLien(m),'_blank','noopener');
+    }else{const a=document.createElement('a');a.href='mailto:'+deck.email+'?subject='+encodeURIComponent('Ma recherche ImmoSwipe'+(nomComplet()?' – '+nomComplet():''))+'&body='+encodeURIComponent(m);a.style.display='none';document.body.appendChild(a);a.click();a.remove();}
   }catch(e){}
 }
 function deposer(){
@@ -467,8 +472,8 @@ function render(){
       <div class="team">${deck.teamPhoto?`<img src="${esc(deck.teamPhoto)}" alt="${esc(deck.teamNames||'')}">`:(canEdit?'<div class="ph" title="Ajoutez votre photo dans Gérer les cartes"></div>':'')}<div><b>${esc(deck.teamNames||'')}</b><span>${esc(recu?tx('rappelOk'):(deck.rappel||''))}</span></div></div>
       <div class="recap"><ul>${rows.map(([a,b])=>`<li><span>${esc(a)}</span><span>${esc(b)}</span></li>`).join('')}${flex.length?`<li><span>Peu importe</span><span>${esc(flex.join(', '))}</span></li>`:''}${fin.note?`<li><span>Précision</span><span>${esc(fin.note)}</span></li>`:''}</ul></div>
       <div class="actions">${(()=>{const court=`Bonjour Achille Immobilier, je viens de vous envoyer ma recherche avec ImmoSwipe${fin.prenom?' ('+fin.prenom+')':''}.`, txt=m;
-        const wa=`https://wa.me/${esc(deck.whatsapp)}?text=${encodeURIComponent(txt)}`,ml=`mailto:${esc(deck.email)}?subject=${encodeURIComponent('Ma recherche ImmoSwipe'+(nomComplet()?' – '+nomComplet():''))}&body=${encodeURIComponent(txt)}`;
-        const W=c=>`<a class="btn ${c}" href="${wa}" target="_blank" rel="noopener">${recu?"Envoyer ma recherche par WhatsApp":"Envoyer à l'agence sur WhatsApp"}</a>`, M=c=>`<a class="btn ${c}" href="${ml}">${recu?"Envoyer ma recherche par e-mail":"Envoyer à l'agence par e-mail"}</a>`;
+        const wa=esc(waLien(txt)),ml=`mailto:${esc(deck.email)}?subject=${encodeURIComponent('Ma recherche ImmoSwipe'+(nomComplet()?' – '+nomComplet():''))}&body=${encodeURIComponent(txt)}`;
+        const W=c=>`<a class="btn ${c}" href="${wa}" ${MOBILE?'':'target="_blank" rel="noopener"'}>${recu?"Envoyer ma recherche par WhatsApp":"Envoyer à l'agence sur WhatsApp"}</a>`, M=c=>`<a class="btn ${c}" href="${ml}">${recu?"Envoyer ma recherche par e-mail":"Envoyer à l'agence par e-mail"}</a>`;
         const H=recu?(fin.contact?`<p class="note" style="color:var(--gris);margin-top:-4px">${fin.contact==='E-mail'?'Votre messagerie':'WhatsApp'} s'est ${fin.contact==='E-mail'?'ouverte':'ouvert'} avec votre message déjà rédigé : appuyez sur Envoyer pour que nous le recevions aussi par ce canal. Si rien ne s'est ouvert, utilisez le bouton ci-dessus.</p>`:''):`<p class="note" style="color:var(--gris);margin-top:-4px">${fin.contact==='E-mail'?'Votre messagerie':'WhatsApp'} s'ouvre avec votre message déjà rédigé : il ne vous reste qu'à appuyer sur Envoyer.</p>`;
         return fin.contact==='E-mail'?M('wa')+H+W(''):W('wa')+H+M('');})()}
       <p class="note" style="color:var(--gris)">${recu?`Pour en garder une trace, <button type="button" class="lien" data-act="copy">copiez votre recherche</button>.`:`Si le bouton ne s'ouvre pas, <button type="button" class="lien" data-act="copy">copiez votre recherche</button> et envoyez-la à ${esc(deck.email)}.`} <span id="note" aria-live="polite"></span></p>
@@ -674,8 +679,9 @@ root.addEventListener('submit',e=>{if(e.target.id!=='ff')return;e.preventDefault
   ['prenom','nom','tel','email','note'].forEach(f=>fin[f]=document.getElementById(f).value.trim());accord=!!(ac&&ac.checked);
   if(bt.disabled)return;bt.disabled=true;bt.textContent='Envoi en cours…';
   const piege=(document.getElementById('site-web')||{}).value;   /* champ invisible : seul un robot le remplit */
+  const depot=piege?Promise.resolve(true):deposer();   /* la fiche part d'abord, puis l'application s'ouvre */
   if(!piege)ouvrirCanal();
-  (piege?Promise.resolve(true):deposer()).then(ok=>{envoi=ok?'ok':'echec';screen='recap';render();});});
+  depot.then(ok=>{envoi=ok?'ok':'echec';screen='recap';render();});});
 root.addEventListener('input',e=>{if(e.target.id==='tel'){const v=e.target.value.replace(/[^0-9+()]/g,'');if(v!==e.target.value)e.target.value=v;}if(e.target.id==='tel'||e.target.id==='email'){const t=document.getElementById('tel');if(t)t.setCustomValidity('');}if(e.target.id==='accord')accord=e.target.checked;});
 document.addEventListener('keydown',e=>{
   if(screen!=='cards'||edOpen||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;
